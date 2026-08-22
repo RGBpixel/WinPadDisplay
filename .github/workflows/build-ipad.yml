@@ -1,0 +1,59 @@
+name: Build WinPadClient IPA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'ipad/WinPadClientProject/**'
+      - '.github/workflows/build-ipad.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Build unsigned iPad app
+        working-directory: ipad/WinPadClientProject
+        run: |
+          set -euo pipefail
+          rm -rf build
+
+          xcodebuild \
+            -project WinPadClient.xcodeproj \
+            -scheme WinPadClient \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package unsigned IPA
+        working-directory: ipad/WinPadClientProject
+        run: |
+          set -euo pipefail
+
+          APP_PATH="build/Build/Products/Release-iphoneos/WinPadClient.app"
+
+          test -d "$APP_PATH"
+
+          rm -rf Payload WinPadClient-unsigned.ipa
+          mkdir Payload
+
+          cp -R "$APP_PATH" Payload/
+
+          /usr/bin/zip -qry WinPadClient-unsigned.ipa Payload
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WinPadClient-unsigned-IPA
+          path: ipad/WinPadClientProject/WinPadClient-unsigned.ipa
+          if-no-files-found: error
