@@ -16,8 +16,17 @@ final class FrameReceiver: ObservableObject {
     func start(port: UInt16 = 5959) {
         guard listener == nil else { return }
         do {
+           
             let p = NWEndpoint.Port(rawValue: port)!
-            let l = try NWListener(using: .tcp, on: p)
+
+            let parameters = NWParameters.tcp
+            parameters.allowLocalEndpointReuse = true
+            parameters.requiredLocalEndpoint = .hostPort(
+                host: NWEndpoint.Host("127.0.0.1"),
+                port: p
+            )
+
+            let l = try NWListener(using: parameters)
             l.newConnectionHandler = { [weak self] conn in
                 Task { @MainActor in
                     self?.accept(conn)
