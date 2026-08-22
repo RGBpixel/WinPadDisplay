@@ -1,0 +1,46 @@
+<Window x:Class="WinPadHost.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="WinPad Display" Width="760" Height="520"
+        WindowStartupLocation="CenterScreen">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Text="WinPad Display — USB-C MVP" FontSize="28" FontWeight="SemiBold"/>
+
+        <StackPanel Grid.Row="1" Margin="0,22,0,0">
+            <TextBlock Text="1. 检查 USB iPad" FontWeight="SemiBold"/>
+            <Button Width="170" Height="34" HorizontalAlignment="Left" Margin="0,8,0,0"
+                    Click="DetectIpad_Click">检测 iPad</Button>
+        </StackPanel>
+
+        <Grid Grid.Row="2" Margin="0,22,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="260"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="100"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock VerticalAlignment="Center" Text="USB 转发地址："/>
+            <TextBox x:Name="HostBox" Grid.Column="1" Margin="8,0,18,0" Text="127.0.0.1"/>
+            <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="端口："/>
+            <TextBox x:Name="PortBox" Grid.Column="3" Margin="8,0,0,0" Text="5959"/>
+        </Grid>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,18,0,0">
+            <Button Width="200" Height="36" Click="Connect_Click">连接并发送测试画面</Button>
+            <Button Width="100" Height="36" Margin="12,0,0,0" Click="Stop_Click">停止</Button>
+        </StackPanel>
+
+        <Border Grid.Row="4" Margin="0,20,0,0" BorderBrush="#BBBBBB" BorderThickness="1" CornerRadius="6">
+            <TextBox x:Name="LogBox" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                     Padding="10" FontFamily="Consolas"/>
+        </Border>
+    </Grid>
+</Window>
