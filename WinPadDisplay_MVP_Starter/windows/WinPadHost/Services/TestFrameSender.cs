@@ -333,11 +333,9 @@ public sealed class TestFrameSender : IAsyncDisposable
                         $"processing: {processingMsTotal / frame:F1} ms");
                 }
 
-                TimeSpan remaining = TargetFrameInterval -
-                    System.Diagnostics.Stopwatch.GetElapsedTime(frameStarted);
-                if (remaining > TimeSpan.Zero)
-                    await Task.Delay(remaining, ct);
-
+                // The iPad ACK is the H.264 pacing signal. Adding the JPEG
+                // timer here would delay every acknowledged frame a second
+                // time and unnecessarily reduce interactive frame rate.
                 captured = nextCaptured;
             }
         }
