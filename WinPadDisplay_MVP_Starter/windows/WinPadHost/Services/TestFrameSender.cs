@@ -224,6 +224,7 @@ public sealed class TestFrameSender : IAsyncDisposable
         Action<string> log)
     {
         int frame = 0;
+        long inputFrame = 0;
         double captureMsTotal = 0;
         double conversionMsTotal = 0;
         double encodeMsTotal = 0;
@@ -259,14 +260,21 @@ public sealed class TestFrameSender : IAsyncDisposable
                 long encodeStarted = System.Diagnostics.Stopwatch.GetTimestamp();
                 IReadOnlyList<byte[]> samples = encoder.EncodeFrame(
                     nv12,
-                    frame * frameDuration,
+                    inputFrame * frameDuration,
                     frameDuration);
+                inputFrame++;
                 byte[] h264 = CombineSamples(samples);
                 double encodeMs = System.Diagnostics.Stopwatch.GetElapsedTime(
                     encodeStarted).TotalMilliseconds;
 
                 if (h264.Length == 0)
-                    throw new InvalidOperationException("H.264 encoder returned no frame data.");
+                {
+                    // Media Foundation encoders may buffer one or more input
+                    // frames while starting. No packet has been sent yet, so
+                    // capture another current frame without waiting for ACK.
+                    captured = await Task.Run(CaptureDesktopBgra, ct);
+                    continue;
+                }
 
                 BinaryPrimitives.WriteUInt32BigEndian(header, (uint)h264.Length);
                 long writeStarted = System.Diagnostics.Stopwatch.GetTimestamp();
