@@ -14,6 +14,7 @@ public partial class MainWindow : System.Windows.Window
     {
         InitializeComponent();
         Append("Ready. Click '一键启动 WinPad'.");
+        Append(H264CapabilityProbe.Describe());
     }
 
     private async void StartAll_Click(
