@@ -118,6 +118,28 @@ final class FrameReceiver: ObservableObject {
         }
     }
 
+    func sendPointer(_ action: String, x: CGFloat, y: CGFloat) {
+        guard let connection else { return }
+
+        let command = String(
+            format: "%@ %.6f %.6f\n",
+            locale: Locale(identifier: "en_US_POSIX"),
+            action,
+            Double(x),
+            Double(y)
+        )
+
+        connection.send(
+            content: command.data(using: .utf8),
+            completion: .contentProcessed { [weak self] error in
+                guard let error else { return }
+                Task { @MainActor in
+                    self?.status = "Input send error: \(error)"
+                }
+            }
+        )
+    }
+
     func stop() {
         connection?.cancel()
         listener?.cancel()
@@ -129,6 +151,8 @@ final class FrameReceiver: ObservableObject {
 
 struct ContentView: View {
     @StateObject private var receiver = FrameReceiver()
+    @State private var touchStartedAt: Date?
+    @State private var isDragging = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -170,6 +194,50 @@ struct ContentView: View {
                 height: geometry.size.height
             )
             .ignoresSafeArea()
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .local)
+                    .onChanged { value in
+                        guard let image = receiver.image else { return }
+                        let point = normalizedPoint(
+                            value.location,
+                            viewSize: geometry.size,
+                            imageSize: image.size
+                        )
+
+                        if touchStartedAt == nil {
+                            touchStartedAt = Date()
+                        }
+
+                        if !isDragging,
+                           let startedAt = touchStartedAt,
+                           Date().timeIntervalSince(startedAt) >= 0.35 {
+                            isDragging = true
+                            receiver.sendPointer("D", x: point.x, y: point.y)
+                        }
+
+                        receiver.sendPointer("M", x: point.x, y: point.y)
+                    }
+                    .onEnded { value in
+                        guard let image = receiver.image else {
+                            resetTouchState()
+                            return
+                        }
+
+                        let point = normalizedPoint(
+                            value.location,
+                            viewSize: geometry.size,
+                            imageSize: image.size
+                        )
+
+                        receiver.sendPointer(
+                            isDragging ? "U" : "C",
+                            x: point.x,
+                            y: point.y
+                        )
+                        resetTouchState()
+                    }
+            )
             .overlay(alignment: .topLeading) {
                 // 左上角状态信息覆盖在画面上，
                 // 不参与图像布局
@@ -205,6 +273,7 @@ struct ContentView: View {
                     RoundedRectangle(cornerRadius: 8)
                 )
                 .padding()
+                .allowsHitTesting(false)
             }
         }
         .ignoresSafeArea()
@@ -225,5 +294,37 @@ struct ContentView: View {
         // 隐藏 iPad 顶部/底部系统覆盖层
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
+    }
+
+    private func normalizedPoint(
+        _ location: CGPoint,
+        viewSize: CGSize,
+        imageSize: CGSize
+    ) -> CGPoint {
+        guard viewSize.width > 0,
+              viewSize.height > 0,
+              imageSize.width > 0,
+              imageSize.height > 0 else {
+            return .zero
+        }
+
+        let scale = max(
+            viewSize.width / imageSize.width,
+            viewSize.height / imageSize.height
+        )
+        let displayedWidth = imageSize.width * scale
+        let displayedHeight = imageSize.height * scale
+        let offsetX = (viewSize.width - displayedWidth) / 2
+        let offsetY = (viewSize.height - displayedHeight) / 2
+
+        return CGPoint(
+            x: min(max((location.x - offsetX) / displayedWidth, 0), 1),
+            y: min(max((location.y - offsetY) / displayedHeight, 0), 1)
+        )
+    }
+
+    private func resetTouchState() {
+        touchStartedAt = nil
+        isDragging = false
     }
 }
