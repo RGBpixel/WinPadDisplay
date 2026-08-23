@@ -132,7 +132,7 @@ struct ContentView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            ZStack(alignment: .topLeading) {
+            ZStack {
 
                 // 整个 iPad 屏幕作为黑色背景
                 Color.black
@@ -142,7 +142,7 @@ struct ContentView: View {
 
                     Image(uiImage: image)
                         .resizable()
-                        .scaledToFit()
+                        .scaledToFill()
                         .frame(
                             width: geometry.size.width,
                             height: geometry.size.height
@@ -164,7 +164,13 @@ struct ContentView: View {
                         height: geometry.size.height
                     )
                 }
-
+            }
+            .frame(
+                width: geometry.size.width,
+                height: geometry.size.height
+            )
+            .ignoresSafeArea()
+            .overlay(alignment: .topLeading) {
                 // 左上角状态信息覆盖在画面上，
                 // 不参与图像布局
                 VStack(alignment: .leading, spacing: 4) {
@@ -185,10 +191,6 @@ struct ContentView: View {
                 )
                 .padding()
             }
-            .frame(
-                width: geometry.size.width,
-                height: geometry.size.height
-            )
         }
         .ignoresSafeArea()
 
@@ -206,6 +208,7 @@ struct ContentView: View {
         }
 
         // 隐藏 iPad 顶部/底部系统覆盖层
+        .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
     }
 }
