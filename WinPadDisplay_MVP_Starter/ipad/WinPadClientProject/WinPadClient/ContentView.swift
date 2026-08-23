@@ -131,38 +131,81 @@ struct ContentView: View {
     @StateObject private var receiver = FrameReceiver()
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            Color.black.ignoresSafeArea()
+        GeometryReader { geometry in
+            ZStack(alignment: .topLeading) {
 
-            if let image = receiver.image {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                VStack(spacing: 14) {
-                    ProgressView()
-                    Text("Waiting for Windows…")
-                        .foregroundStyle(.white)
+                // 整个 iPad 屏幕作为黑色背景
+                Color.black
+                    .ignoresSafeArea()
+
+                if let image = receiver.image {
+
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(
+                            width: geometry.size.width,
+                            height: geometry.size.height
+                        )
+                        .clipped()
+                        .ignoresSafeArea()
+
+                } else {
+
+                    VStack(spacing: 14) {
+                        ProgressView()
+                            .tint(.white)
+
+                        Text("Waiting for Windows…")
+                            .foregroundStyle(.white)
+                    }
+                    .frame(
+                        width: geometry.size.width,
+                        height: geometry.size.height
+                    )
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("WinPad Client")
-                    .font(.headline)
-                Text(receiver.status)
-                Text("Frames: \(receiver.frameCount)")
+                // 左上角状态信息覆盖在画面上，
+                // 不参与图像布局
+                VStack(alignment: .leading, spacing: 4) {
+
+                    Text("WinPad Client")
+                        .font(.headline)
+
+                    Text(receiver.status)
+
+                    Text("Frames: \(receiver.frameCount)")
+                }
+                .font(.caption.monospaced())
+                .foregroundStyle(.white)
+                .padding(10)
+                .background(.black.opacity(0.55))
+                .clipShape(
+                    RoundedRectangle(cornerRadius: 8)
+                )
+                .padding()
             }
-            .font(.caption.monospaced())
-            .foregroundStyle(.white)
-            .padding(10)
-            .background(.black.opacity(0.55))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .padding()
+            .frame(
+                width: geometry.size.width,
+                height: geometry.size.height
+            )
         }
-        .onAppear { receiver.start() }
-        .onDisappear { receiver.stop() }
+        .ignoresSafeArea()
+
+        .onAppear {
+            // 使用 WinPad 时禁止 iPad 自动锁屏
+            UIApplication.shared.isIdleTimerDisabled = true
+
+            receiver.start()
+        }
+
+        .onDisappear {
+            UIApplication.shared.isIdleTimerDisabled = false
+
+            receiver.stop()
+        }
+
+        // 隐藏 iPad 顶部/底部系统覆盖层
         .persistentSystemOverlays(.hidden)
     }
 }
