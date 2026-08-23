@@ -161,6 +161,10 @@ final class FrameReceiver: ObservableObject {
                         self.image = image
                     }
                     self.frameCount += result.frameCount
+
+                    if result.frameCount > 0 {
+                        self.sendFrameAcknowledgement(on: connection)
+                    }
                 }
 
                 if let error {
@@ -174,6 +178,13 @@ final class FrameReceiver: ObservableObject {
                 self.receiveNext()
             }
         }
+    }
+
+    private func sendFrameAcknowledgement(on connection: NWConnection) {
+        connection.send(
+            content: Data([0x41, 0x0A]),
+            completion: .contentProcessed { _ in }
+        )
     }
 
     func sendPointer(_ action: String, x: CGFloat, y: CGFloat) {
