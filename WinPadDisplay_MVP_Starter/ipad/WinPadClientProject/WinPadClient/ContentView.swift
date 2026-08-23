@@ -1,6 +1,67 @@
 import SwiftUI
 import Network
 import UIKit
+import ImageIO
+
+private final class FrameProcessor {
+    private var buffer = Data()
+    private var expectedLength: Int?
+    private let lock = NSLock()
+
+    func reset() {
+        lock.lock()
+        defer { lock.unlock() }
+
+        buffer.removeAll(keepingCapacity: true)
+        expectedLength = nil
+    }
+
+    func append(_ data: Data) -> (image: UIImage?, frameCount: Int, invalidLength: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        buffer.append(data)
+
+        var latestJPEG: Data?
+        var completedFrames = 0
+
+        while true {
+            if expectedLength == nil {
+                guard buffer.count >= 4 else { break }
+
+                let length = buffer.prefix(4).reduce(0) { ($0 << 8) | Int($1) }
+                buffer.removeFirst(4)
+
+                guard length > 0 && length < 20_000_000 else {
+                    buffer.removeAll(keepingCapacity: true)
+                    expectedLength = nil
+                    return (nil, completedFrames, true)
+                }
+
+                expectedLength = length
+            }
+
+            guard let length = expectedLength, buffer.count >= length else { break }
+
+            latestJPEG = Data(buffer.prefix(length))
+            buffer.removeFirst(length)
+            expectedLength = nil
+            completedFrames += 1
+        }
+
+        guard let latestJPEG,
+              let source = CGImageSourceCreateWithData(latestJPEG as CFData, nil),
+              let cgImage = CGImageSourceCreateImageAtIndex(
+                  source,
+                  0,
+                  [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
+              ) else {
+            return (nil, completedFrames, false)
+        }
+
+        return (UIImage(cgImage: cgImage), completedFrames, false)
+    }
+}
 
 @MainActor
 final class FrameReceiver: ObservableObject {
@@ -10,8 +71,7 @@ final class FrameReceiver: ObservableObject {
 
     private var listener: NWListener?
     private var connection: NWConnection?
-    private var buffer = Data()
-    private var expectedLength: Int?
+    private let frameProcessor = FrameProcessor()
     private var pointerSendInFlight = false
     private var pendingPointerMove: Data?
     private var pendingPointerActions: [Data] = []
@@ -59,8 +119,7 @@ final class FrameReceiver: ObservableObject {
     private func accept(_ conn: NWConnection) {
         connection?.cancel()
         connection = conn
-        buffer.removeAll(keepingCapacity: true)
-        expectedLength = nil
+        frameProcessor.reset()
         pointerSendInFlight = false
         pendingPointerMove = nil
         pendingPointerActions.removeAll(keepingCapacity: true)
@@ -78,13 +137,30 @@ final class FrameReceiver: ObservableObject {
     }
 
     private func receiveNext() {
-        connection?.receive(minimumIncompleteLength: 1, maximumLength: 512 * 1024) { [weak self] data, _, isComplete, error in
-            guard let self else { return }
+        guard let connection else { return }
+        let frameProcessor = frameProcessor
+
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 512 * 1024) { [weak self] data, _, isComplete, error in
+            let result = data.flatMap { chunk in
+                chunk.isEmpty ? nil : frameProcessor.append(chunk)
+            }
+
             Task { @MainActor in
-                if let data, !data.isEmpty {
-                    self.buffer.append(data)
-                    self.consumeFrames()
+                guard let self else { return }
+
+                if let result {
+                    if result.invalidLength {
+                        self.status = "Invalid frame length"
+                        connection.cancel()
+                        return
+                    }
+
+                    if let image = result.image {
+                        self.image = image
+                    }
+                    self.frameCount += result.frameCount
                 }
+
                 if let error {
                     self.status = "Receive error: \(error)"
                     return
@@ -94,32 +170,6 @@ final class FrameReceiver: ObservableObject {
                     return
                 }
                 self.receiveNext()
-            }
-        }
-    }
-
-    private func consumeFrames() {
-        while true {
-            if expectedLength == nil {
-                guard buffer.count >= 4 else { return }
-                let length = buffer.prefix(4).reduce(0) { ($0 << 8) | Int($1) }
-                buffer.removeFirst(4)
-                guard length > 0 && length < 20_000_000 else {
-                    status = "Invalid frame length"
-                    connection?.cancel()
-                    return
-                }
-                expectedLength = length
-            }
-
-            guard let length = expectedLength, buffer.count >= length else { return }
-            let jpg = buffer.prefix(length)
-            buffer.removeFirst(length)
-            expectedLength = nil
-
-            if let decoded = UIImage(data: Data(jpg)) {
-                image = decoded
-                frameCount += 1
             }
         }
     }
