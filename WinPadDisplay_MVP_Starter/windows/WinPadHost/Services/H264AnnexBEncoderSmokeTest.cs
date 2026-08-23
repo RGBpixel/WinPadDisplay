@@ -204,6 +204,41 @@ public static class H264AnnexBEncoderSmokeTest
                $"total {stopwatch.ElapsedMilliseconds} ms, {Path.GetFullPath(outputPath)}.";
     }
 
+    public static async Task<string> RunThreadedPipelineAsync(string outputPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
+
+        var stopwatch = Stopwatch.StartNew();
+        byte[] nv12 = new byte[Width * Height * 3 / 2];
+        long frameDuration = HnsPerSecond / FramesPerSecond;
+        int encodedSamples = 0;
+        int startCodes = 0;
+
+        using var encoder = new H264EncoderWorker(Width, Height, FramesPerSecond);
+        using var output = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.Read);
+
+        for (int frameNumber = 0; frameNumber < FrameCount; frameNumber++)
+        {
+            FillNV12Frame(nv12, frameNumber);
+            WriteEncodedSamples(
+                await encoder.EncodeFrameAsync(
+                    nv12,
+                    frameNumber * frameDuration,
+                    frameDuration),
+                output,
+                ref encodedSamples,
+                ref startCodes);
+            await Task.Yield();
+        }
+
+        output.Flush();
+        stopwatch.Stop();
+        return $"Threaded H.264 pipeline succeeded: {encodedSamples} samples, " +
+               $"{startCodes} start codes, {output.Length:N0} bytes, " +
+               $"{stopwatch.ElapsedMilliseconds} ms, {Path.GetFullPath(outputPath)}.";
+    }
+
     private static void WriteEncodedSamples(
         IReadOnlyList<byte[]> samples,
         Stream destination,

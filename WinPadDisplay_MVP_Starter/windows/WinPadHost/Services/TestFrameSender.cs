@@ -236,7 +236,7 @@ public sealed class TestFrameSender : IAsyncDisposable
         try
         {
             CapturedBgraFrame captured = await Task.Run(CaptureDesktopBgra, ct);
-            using var encoder = new H264AnnexBEncoder(
+            using var encoder = new H264EncoderWorker(
                 captured.Width,
                 captured.Height,
                 (int)TargetFps);
@@ -258,7 +258,7 @@ public sealed class TestFrameSender : IAsyncDisposable
                     conversionStarted).TotalMilliseconds;
 
                 long encodeStarted = System.Diagnostics.Stopwatch.GetTimestamp();
-                IReadOnlyList<byte[]> samples = encoder.EncodeFrame(
+                IReadOnlyList<byte[]> samples = await encoder.EncodeFrameAsync(
                     nv12,
                     inputFrame * frameDuration,
                     frameDuration);
