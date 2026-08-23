@@ -107,6 +107,64 @@ public static class H264AnnexBEncoderSmokeTest
         }
     }
 
+    public static string RunReusableEncoder(string outputPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
+
+        var stopwatch = Stopwatch.StartNew();
+        byte[] nv12 = new byte[Width * Height * 3 / 2];
+        long frameDuration = HnsPerSecond / FramesPerSecond;
+        int encodedSamples = 0;
+        int startCodes = 0;
+
+        using var encoder = new H264AnnexBEncoder(Width, Height, FramesPerSecond);
+        using var output = new FileStream(
+            outputPath,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.Read);
+
+        for (int frameNumber = 0; frameNumber < FrameCount; frameNumber++)
+        {
+            FillNV12Frame(nv12, frameNumber);
+            WriteEncodedSamples(
+                encoder.EncodeFrame(
+                    nv12,
+                    frameNumber * frameDuration,
+                    frameDuration),
+                output,
+                ref encodedSamples,
+                ref startCodes);
+        }
+
+        WriteEncodedSamples(
+            encoder.Complete(),
+            output,
+            ref encodedSamples,
+            ref startCodes);
+        output.Flush();
+        stopwatch.Stop();
+
+        return $"Reusable H.264 encoder succeeded: {encodedSamples} samples, " +
+               $"{startCodes} start codes, {output.Length:N0} bytes, " +
+               $"{stopwatch.ElapsedMilliseconds} ms, {Path.GetFullPath(outputPath)}.";
+    }
+
+    private static void WriteEncodedSamples(
+        IReadOnlyList<byte[]> samples,
+        Stream destination,
+        ref int encodedSamples,
+        ref int startCodes)
+    {
+        foreach (byte[] sample in samples)
+        {
+            destination.Write(sample);
+            encodedSamples++;
+            startCodes += CountAnnexBStartCodes(sample);
+        }
+    }
+
     private static void DrainAvailableOutput(
         IMFTransform encoder,
         OutputStreamInfo streamInfo,
