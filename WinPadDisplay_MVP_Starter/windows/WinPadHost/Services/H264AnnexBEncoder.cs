@@ -47,11 +47,14 @@ public sealed class H264AnnexBEncoder : IDisposable
             _activation = _activations.FirstOrDefault()
                 ?? throw new InvalidOperationException("No synchronous H.264 encoder found.");
             _encoder = _activation.ActivateObject<IMFTransform>();
+            _encoder.Attributes.Set(SinkWriterAttributeKeys.LowLatency, 1u);
 
             using IMFMediaType outputType = MediaFactory.MFCreateMediaType();
             ConfigureVideoType(outputType, VideoFormatGuids.H264);
             outputType.Set(MediaTypeAttributeKeys.AvgBitrate, (uint)bitrate);
-            outputType.Set(MediaTypeAttributeKeys.Mpeg2Profile, 77u);
+            // Baseline profile forbids B pictures, preventing temporal frame
+            // reordering that makes cursor motion appear to jump backwards.
+            outputType.Set(MediaTypeAttributeKeys.Mpeg2Profile, 66u);
             _encoder.SetOutputType(0, outputType, 0);
 
             using IMFMediaType inputType = MediaFactory.MFCreateMediaType();
