@@ -151,6 +151,59 @@ public static class H264AnnexBEncoderSmokeTest
                $"{stopwatch.ElapsedMilliseconds} ms, {Path.GetFullPath(outputPath)}.";
     }
 
+    public static string RunBgraPipeline(string outputPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
+
+        var stopwatch = Stopwatch.StartNew();
+        byte[] bgra = new byte[Width * Height * 4];
+        byte[] nv12 = new byte[Width * Height * 3 / 2];
+        long frameDuration = HnsPerSecond / FramesPerSecond;
+        int encodedSamples = 0;
+        int startCodes = 0;
+        double conversionMilliseconds = 0;
+
+        using var encoder = new H264AnnexBEncoder(Width, Height, FramesPerSecond);
+        using var output = new FileStream(
+            outputPath,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.Read);
+
+        for (int frameNumber = 0; frameNumber < FrameCount; frameNumber++)
+        {
+            FillBgraFrame(bgra, frameNumber);
+
+            long conversionStarted = Stopwatch.GetTimestamp();
+            BgraToNv12Converter.Convert(bgra, Width, Height, Width * 4, nv12);
+            conversionMilliseconds += Stopwatch.GetElapsedTime(
+                conversionStarted).TotalMilliseconds;
+
+            WriteEncodedSamples(
+                encoder.EncodeFrame(
+                    nv12,
+                    frameNumber * frameDuration,
+                    frameDuration),
+                output,
+                ref encodedSamples,
+                ref startCodes);
+        }
+
+        WriteEncodedSamples(
+            encoder.Complete(),
+            output,
+            ref encodedSamples,
+            ref startCodes);
+        output.Flush();
+        stopwatch.Stop();
+
+        return $"BGRA-to-H.264 pipeline succeeded: {encodedSamples} samples, " +
+               $"{startCodes} start codes, {output.Length:N0} bytes, " +
+               $"avg BGRA-to-NV12 {conversionMilliseconds / FrameCount:F1} ms, " +
+               $"total {stopwatch.ElapsedMilliseconds} ms, {Path.GetFullPath(outputPath)}.";
+    }
+
     private static void WriteEncodedSamples(
         IReadOnlyList<byte[]> samples,
         Stream destination,
@@ -298,6 +351,25 @@ public static class H264AnnexBEncoderSmokeTest
         }
 
         Array.Fill(frame, (byte)128, yPlaneLength, frame.Length - yPlaneLength);
+    }
+
+    private static void FillBgraFrame(byte[] frame, int frameNumber)
+    {
+        int movingBarLeft = frameNumber * Width / FrameCount;
+        for (int y = 0; y < Height; y++)
+        {
+            int row = y * Width * 4;
+            byte green = (byte)(y * 255 / Height);
+            for (int x = 0; x < Width; x++)
+            {
+                int offset = row + x * 4;
+                bool movingBar = x >= movingBarLeft && x < movingBarLeft + 96;
+                frame[offset] = movingBar ? (byte)32 : (byte)(x * 255 / Width);
+                frame[offset + 1] = movingBar ? (byte)220 : green;
+                frame[offset + 2] = movingBar ? (byte)255 : (byte)48;
+                frame[offset + 3] = 255;
+            }
+        }
     }
 
     private static int CountAnnexBStartCodes(byte[] bytes)
