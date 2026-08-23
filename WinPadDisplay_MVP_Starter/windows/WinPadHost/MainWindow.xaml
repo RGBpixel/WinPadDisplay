@@ -39,6 +39,8 @@
             <Button Width="200" Height="36" Margin="12,0,0,0"
                     Click="Connect_Click">连接并发送测试画面</Button>
             <Button Width="100" Height="36" Margin="12,0,0,0" Click="Stop_Click">停止</Button>
+            <CheckBox x:Name="H264CheckBox" Margin="16,0,0,0" VerticalAlignment="Center"
+                      Content="H.264 实验模式"/>
         </StackPanel>
 
         <Border Grid.Row="4" Margin="0,20,0,0" BorderBrush="#BBBBBB" BorderThickness="1" CornerRadius="6">

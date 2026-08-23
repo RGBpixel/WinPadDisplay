@@ -7,6 +7,7 @@ private final class FrameProcessor {
     private var buffer = Data()
     private var expectedLength: Int?
     private let lock = NSLock()
+    private let h264Decoder = H264FrameDecoder()
 
     func reset() {
         lock.lock()
@@ -14,6 +15,7 @@ private final class FrameProcessor {
 
         buffer.removeAll(keepingCapacity: true)
         expectedLength = nil
+        h264Decoder.reset()
     }
 
     func append(_ data: Data) -> (image: UIImage?, frameCount: Int, invalidLength: Bool) {
@@ -22,7 +24,7 @@ private final class FrameProcessor {
 
         buffer.append(data)
 
-        var latestJPEG: Data?
+        var latestImage: UIImage?
         var completedFrames = 0
 
         while true {
@@ -43,23 +45,30 @@ private final class FrameProcessor {
 
             guard let length = expectedLength, buffer.count >= length else { break }
 
-            latestJPEG = Data(buffer.prefix(length))
+            let frameData = Data(buffer.prefix(length))
             buffer.removeFirst(length)
             expectedLength = nil
             completedFrames += 1
+
+            if frameData.starts(with: [0xFF, 0xD8]) {
+                if let source = CGImageSourceCreateWithData(frameData as CFData, nil),
+                   let cgImage = CGImageSourceCreateImageAtIndex(
+                       source,
+                       0,
+                       [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
+                   ) {
+                    latestImage = UIImage(cgImage: cgImage)
+                }
+            } else if let image = h264Decoder.decode(accessUnit: frameData) {
+                latestImage = image
+            }
         }
 
-        guard let latestJPEG,
-              let source = CGImageSourceCreateWithData(latestJPEG as CFData, nil),
-              let cgImage = CGImageSourceCreateImageAtIndex(
-                  source,
-                  0,
-                  [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
-              ) else {
+        guard let latestImage else {
             return (nil, completedFrames, false)
         }
 
-        return (UIImage(cgImage: cgImage), completedFrames, false)
+        return (latestImage, completedFrames, false)
     }
 }
 
@@ -135,7 +144,15 @@ final class FrameReceiver: ObservableObject {
             }
         }
         conn.start(queue: DispatchQueue(label: "winpad.connection"))
+        sendCapabilities(on: conn)
         receiveNext()
+    }
+
+    private func sendCapabilities(on connection: NWConnection) {
+        connection.send(
+            content: Data("V H264 JPEG\n".utf8),
+            completion: .contentProcessed { _ in }
+        )
     }
 
     private func receiveNext() {
