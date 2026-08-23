@@ -12,6 +12,9 @@ final class FrameReceiver: ObservableObject {
     private var connection: NWConnection?
     private var buffer = Data()
     private var expectedLength: Int?
+    private var pointerSendInFlight = false
+    private var pendingPointerMove: Data?
+    private var pendingPointerActions: [Data] = []
 
     func start(port: UInt16 = 5959) {
         guard listener == nil else { return }
@@ -58,6 +61,9 @@ final class FrameReceiver: ObservableObject {
         connection = conn
         buffer.removeAll(keepingCapacity: true)
         expectedLength = nil
+        pointerSendInFlight = false
+        pendingPointerMove = nil
+        pendingPointerActions.removeAll(keepingCapacity: true)
         status = "Windows connected"
 
         conn.stateUpdateHandler = { [weak self] state in
@@ -129,15 +135,56 @@ final class FrameReceiver: ObservableObject {
             Double(y)
         )
 
+        guard let data = command.data(using: .utf8) else { return }
+
+        if pointerSendInFlight {
+            if action == "M" {
+                pendingPointerMove = data
+            } else {
+                // Pointer actions include their final coordinates, so an
+                // older queued MOVE can be discarded before DOWN/UP/CLICK.
+                pendingPointerMove = nil
+                pendingPointerActions.append(data)
+            }
+            return
+        }
+
+        sendPointerData(data, on: connection)
+    }
+
+    private func sendPointerData(_ data: Data, on connection: NWConnection) {
+        pointerSendInFlight = true
+
         connection.send(
-            content: command.data(using: .utf8),
+            content: data,
             completion: .contentProcessed { [weak self] error in
-                guard let error else { return }
                 Task { @MainActor in
-                    self?.status = "Input send error: \(error)"
+                    guard let self else { return }
+
+                    if let error {
+                        self.status = "Input send error: \(error)"
+                        self.pointerSendInFlight = false
+                        self.pendingPointerMove = nil
+                        self.pendingPointerActions.removeAll()
+                        return
+                    }
+
+                    self.sendNextPointerCommand(on: connection)
                 }
             }
         )
+    }
+
+    private func sendNextPointerCommand(on connection: NWConnection) {
+        if !pendingPointerActions.isEmpty {
+            let data = pendingPointerActions.removeFirst()
+            sendPointerData(data, on: connection)
+        } else if let data = pendingPointerMove {
+            pendingPointerMove = nil
+            sendPointerData(data, on: connection)
+        } else {
+            pointerSendInFlight = false
+        }
     }
 
     func stop() {
@@ -145,6 +192,9 @@ final class FrameReceiver: ObservableObject {
         listener?.cancel()
         connection = nil
         listener = nil
+        pointerSendInFlight = false
+        pendingPointerMove = nil
+        pendingPointerActions.removeAll()
         status = "Stopped"
     }
 }
