@@ -22,6 +22,7 @@ public sealed class TestFrameSender : IAsyncDisposable
     private Task? _loopTask;
     private Task? _inputTask;
     private SemaphoreSlim? _frameAck;
+    private TaskCompletionSource<bool>? _h264Capability;
     private static int _lastInputError;
 
     public bool IsRunning => _loopTask is { IsCompleted: false };
@@ -29,7 +30,8 @@ public sealed class TestFrameSender : IAsyncDisposable
     public async Task StartAsync(
         string host,
         int port,
-        Action<string> log)
+        Action<string> log,
+        bool preferH264 = false)
     {
         await StopAsync();
 
@@ -73,18 +75,43 @@ public sealed class TestFrameSender : IAsyncDisposable
 
         _cts = new CancellationTokenSource();
         _frameAck = new SemaphoreSlim(0, 1);
-
-        _loopTask = RunAsync(
-            _client.GetStream(),
-            _frameAck,
-            _cts.Token,
-            log);
+        _h264Capability = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
 
         _inputTask = RunInputAsync(
             _client.GetStream(),
             _frameAck,
+            _h264Capability,
             _cts.Token,
             log);
+
+        bool useH264 = false;
+        if (preferH264)
+        {
+            Task completed = await Task.WhenAny(
+                _h264Capability.Task,
+                Task.Delay(TimeSpan.FromMilliseconds(500), _cts.Token));
+            useH264 = completed == _h264Capability.Task &&
+                      await _h264Capability.Task;
+        }
+
+        log(useH264
+            ? "Streaming mode: H.264 Annex-B (experimental)."
+            : preferH264
+                ? "Streaming mode: JPEG fallback (client did not advertise H.264)."
+                : "Streaming mode: JPEG.");
+
+        _loopTask = useH264
+            ? RunH264Async(
+                _client.GetStream(),
+                _frameAck,
+                _cts.Token,
+                log)
+            : RunAsync(
+                _client.GetStream(),
+                _frameAck,
+                _cts.Token,
+                log);
     }
 
     private static async Task RunAsync(
@@ -188,6 +215,224 @@ public sealed class TestFrameSender : IAsyncDisposable
         {
             log("Sender stopped: " + ex.Message);
         }
+    }
+
+    private static async Task RunH264Async(
+        NetworkStream stream,
+        SemaphoreSlim frameAck,
+        CancellationToken ct,
+        Action<string> log)
+    {
+        int frame = 0;
+        long inputFrame = 0;
+        double captureMsTotal = 0;
+        double conversionMsTotal = 0;
+        double encodeMsTotal = 0;
+        double writeMsTotal = 0;
+        double processingMsTotal = 0;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        byte[] header = new byte[4];
+
+        try
+        {
+            string deviceName = System.Windows.Forms.Screen.AllScreens
+                .FirstOrDefault(screen => !screen.Primary)?.DeviceName
+                ?? throw new InvalidOperationException("No secondary display found.");
+            using DxgiCaptureWorker? dxgiCapture = TryCreateDxgiCapture(
+                deviceName,
+                log);
+
+            async Task<CapturedBgraFrame> CaptureNextAsync()
+            {
+                if (dxgiCapture == null)
+                    return await Task.Run(CaptureDesktopBgra, ct);
+
+                DxgiCapturedFrame frame = await dxgiCapture.CaptureAsync();
+                return new CapturedBgraFrame(
+                    frame.Bgra,
+                    frame.Width,
+                    frame.Height,
+                    frame.Stride,
+                    frame.CaptureMs);
+            }
+
+            CapturedBgraFrame captured = await CaptureNextAsync();
+            using var encoder = new H264EncoderWorker(
+                captured.Width,
+                captured.Height,
+                (int)TargetFps);
+            byte[] nv12 = new byte[encoder.NV12FrameSize];
+            long frameDuration = 10_000_000 / (int)TargetFps;
+
+            while (!ct.IsCancellationRequested)
+            {
+                long frameStarted = System.Diagnostics.Stopwatch.GetTimestamp();
+
+                long conversionStarted = System.Diagnostics.Stopwatch.GetTimestamp();
+                BgraToNv12Converter.Convert(
+                    captured.Bgra,
+                    captured.Width,
+                    captured.Height,
+                    captured.Stride,
+                    nv12);
+                double conversionMs = System.Diagnostics.Stopwatch.GetElapsedTime(
+                    conversionStarted).TotalMilliseconds;
+
+                long encodeStarted = System.Diagnostics.Stopwatch.GetTimestamp();
+                IReadOnlyList<byte[]> samples = await encoder.EncodeFrameAsync(
+                    nv12,
+                    inputFrame * frameDuration,
+                    frameDuration);
+                inputFrame++;
+                byte[] h264 = CombineSamples(samples);
+                double encodeMs = System.Diagnostics.Stopwatch.GetElapsedTime(
+                    encodeStarted).TotalMilliseconds;
+
+                if (h264.Length == 0)
+                {
+                    // Media Foundation encoders may buffer one or more input
+                    // frames while starting. No packet has been sent yet, so
+                    // capture another current frame without waiting for ACK.
+                    captured = await CaptureNextAsync();
+                    continue;
+                }
+
+                BinaryPrimitives.WriteUInt32BigEndian(header, (uint)h264.Length);
+                long writeStarted = System.Diagnostics.Stopwatch.GetTimestamp();
+                await stream.WriteAsync(header, ct);
+                await stream.WriteAsync(h264, ct);
+
+                Task<CapturedBgraFrame> nextCaptureTask = CaptureNextAsync();
+
+                if (!await frameAck.WaitAsync(TimeSpan.FromSeconds(5), ct))
+                    throw new IOException("Timed out waiting for iPad H.264 frame ACK.");
+
+                CapturedBgraFrame nextCaptured = await nextCaptureTask;
+                double writeMs = System.Diagnostics.Stopwatch.GetElapsedTime(
+                    writeStarted).TotalMilliseconds;
+                double processingMs = System.Diagnostics.Stopwatch.GetElapsedTime(
+                    frameStarted).TotalMilliseconds;
+
+                frame++;
+                captureMsTotal += captured.CaptureMs;
+                conversionMsTotal += conversionMs;
+                encodeMsTotal += encodeMs;
+                writeMsTotal += writeMs;
+                processingMsTotal += processingMs;
+
+                if (frame % 30 == 0)
+                {
+                    double fps = frame / sw.Elapsed.TotalSeconds;
+                    log(
+                        $"H264 frames: {frame}, FPS: {fps:F1}, " +
+                        $"frame: {h264.Length / 1024} KB | " +
+                        $"avg capture: {captureMsTotal / frame:F1} ms, " +
+                        $"BGRA->NV12: {conversionMsTotal / frame:F1} ms, " +
+                        $"H264 encode: {encodeMsTotal / frame:F1} ms, " +
+                        $"TCP/ACK: {writeMsTotal / frame:F1} ms, " +
+                        $"processing: {processingMsTotal / frame:F1} ms");
+                }
+
+                // The iPad ACK is the H.264 pacing signal. Adding the JPEG
+                // timer here would delay every acknowledged frame a second
+                // time and unnecessarily reduce interactive frame rate.
+                captured = nextCaptured;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            log("H.264 sender stopped: " + ex.Message);
+        }
+    }
+
+    private static DxgiCaptureWorker? TryCreateDxgiCapture(
+        string deviceName,
+        Action<string> log)
+    {
+        try
+        {
+            var capture = new DxgiCaptureWorker(deviceName);
+            log($"H.264 capture: DXGI Desktop Duplication on {deviceName}.");
+            return capture;
+        }
+        catch (Exception ex)
+        {
+            log($"DXGI capture unavailable ({ex.Message}); using CopyFromScreen.");
+            return null;
+        }
+    }
+
+    private static byte[] CombineSamples(IReadOnlyList<byte[]> samples)
+    {
+        if (samples.Count == 1)
+            return samples[0];
+
+        int length = samples.Sum(sample => sample.Length);
+        byte[] combined = new byte[length];
+        int offset = 0;
+        foreach (byte[] sample in samples)
+        {
+            Buffer.BlockCopy(sample, 0, combined, offset, sample.Length);
+            offset += sample.Length;
+        }
+
+        return combined;
+    }
+
+    private static CapturedBgraFrame CaptureDesktopBgra()
+    {
+        var screen = System.Windows.Forms.Screen.AllScreens
+            .FirstOrDefault(s => !s.Primary)
+            ?? throw new InvalidOperationException("No secondary display found.");
+        Rectangle bounds = screen.Bounds;
+        long captureStarted = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        using var bitmap = new Bitmap(
+            bounds.Width,
+            bounds.Height,
+            PixelFormat.Format32bppRgb);
+        using (Graphics graphics = Graphics.FromImage(bitmap))
+        {
+            graphics.CopyFromScreen(
+                bounds.Left,
+                bounds.Top,
+                0,
+                0,
+                bounds.Size,
+                CopyPixelOperation.SourceCopy);
+            DrawCursor(graphics, bounds);
+        }
+
+        int rowBytes = bounds.Width * 4;
+        byte[] bgra = new byte[rowBytes * bounds.Height];
+        BitmapData data = bitmap.LockBits(
+            new Rectangle(0, 0, bounds.Width, bounds.Height),
+            ImageLockMode.ReadOnly,
+            PixelFormat.Format32bppRgb);
+        try
+        {
+            for (int y = 0; y < bounds.Height; y++)
+            {
+                IntPtr sourceRow = data.Scan0 + y * data.Stride;
+                Marshal.Copy(sourceRow, bgra, y * rowBytes, rowBytes);
+            }
+        }
+        finally
+        {
+            bitmap.UnlockBits(data);
+        }
+
+        double captureMs = System.Diagnostics.Stopwatch.GetElapsedTime(
+            captureStarted).TotalMilliseconds;
+        return new CapturedBgraFrame(
+            bgra,
+            bounds.Width,
+            bounds.Height,
+            rowBytes,
+            captureMs);
     }
 
     private static CapturedFrame CaptureDesktop()
@@ -314,6 +559,7 @@ public sealed class TestFrameSender : IAsyncDisposable
     private static async Task RunInputAsync(
         NetworkStream stream,
         SemaphoreSlim frameAck,
+        TaskCompletionSource<bool> h264Capability,
         CancellationToken ct,
         Action<string> log)
     {
@@ -342,6 +588,17 @@ public sealed class TestFrameSender : IAsyncDisposable
                 {
                     if (frameAck.CurrentCount == 0)
                         frameAck.Release();
+                    continue;
+                }
+
+                if (line.StartsWith("V ", StringComparison.Ordinal))
+                {
+                    bool supportsH264 = line
+                        .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                        .Skip(1)
+                        .Any(codec => codec.Equals("H264", StringComparison.OrdinalIgnoreCase));
+                    h264Capability.TrySetResult(supportsH264);
+                    log("Client capabilities: " + line[2..]);
                     continue;
                 }
 
@@ -598,6 +855,13 @@ public sealed class TestFrameSender : IAsyncDisposable
         double CaptureMs,
         double EncodeMs);
 
+    private readonly record struct CapturedBgraFrame(
+        byte[] Bgra,
+        int Width,
+        int Height,
+        int Stride,
+        double CaptureMs);
+
     public async Task StopAsync()
     {
         if (_cts != null)
@@ -625,6 +889,7 @@ public sealed class TestFrameSender : IAsyncDisposable
         _client = null;
         _loopTask = null;
         _inputTask = null;
+        _h264Capability = null;
     }
 
     public async ValueTask DisposeAsync()

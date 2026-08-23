@@ -8,6 +8,7 @@
 /* Begin PBXBuildFile section */
 		A10000000000000000000001 /* WinPadClientApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* WinPadClientApp.swift */; };
 		A10000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* ContentView.swift */; };
+		A10000000000000000000003 /* H264FrameDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* H264FrameDecoder.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -15,6 +16,7 @@
 		A20000000000000000000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A20000000000000000000003 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A20000000000000000000004 /* WinPadClient.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WinPadClient.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000005 /* H264FrameDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = H264FrameDecoder.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -40,6 +42,7 @@
 			children = (
 				A20000000000000000000001 /* WinPadClientApp.swift */,
 				A20000000000000000000002 /* ContentView.swift */,
+				A20000000000000000000005 /* H264FrameDecoder.swift */,
 				A20000000000000000000003 /* Info.plist */,
 			);
 			path = WinPadClient;
@@ -113,6 +116,7 @@
 			files = (
 				A10000000000000000000001 /* WinPadClientApp.swift in Sources */,
 				A10000000000000000000002 /* ContentView.swift in Sources */,
+				A10000000000000000000003 /* H264FrameDecoder.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

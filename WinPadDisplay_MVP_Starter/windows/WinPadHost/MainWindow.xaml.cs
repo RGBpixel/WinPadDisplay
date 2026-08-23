@@ -14,6 +14,7 @@ public partial class MainWindow : System.Windows.Window
     {
         InitializeComponent();
         Append("Ready. Click '一键启动 WinPad'.");
+        Append(H264CapabilityProbe.Describe());
     }
 
     private async void StartAll_Click(
@@ -82,7 +83,11 @@ public partial class MainWindow : System.Windows.Window
                 try
                 {
                     Action<string> attemptLog = attempt == 1 ? Append : _ => { };
-                    await _sender.StartAsync(HostBox.Text, port, attemptLog);
+                    await _sender.StartAsync(
+                        HostBox.Text,
+                        port,
+                        attemptLog,
+                        H264CheckBox.IsChecked == true);
                     await Task.Delay(750, ct);
 
                     if (_sender.IsRunning)
@@ -160,7 +165,11 @@ public partial class MainWindow : System.Windows.Window
         try
         {
             await _startup.EnsureUsbForwardAsync(port, Append);
-            await _sender.StartAsync(HostBox.Text, port, Append);
+            await _sender.StartAsync(
+                HostBox.Text,
+                port,
+                Append,
+                H264CheckBox.IsChecked == true);
         }
         catch (Exception ex)
         {
