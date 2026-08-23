@@ -34,7 +34,10 @@
         </Grid>
 
         <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,18,0,0">
-            <Button Width="200" Height="36" Click="Connect_Click">连接并发送测试画面</Button>
+            <Button x:Name="StartAllButton" Width="150" Height="36" Click="StartAll_Click"
+                    FontWeight="SemiBold">一键启动 WinPad</Button>
+            <Button Width="200" Height="36" Margin="12,0,0,0"
+                    Click="Connect_Click">连接并发送测试画面</Button>
             <Button Width="100" Height="36" Margin="12,0,0,0" Click="Stop_Click">停止</Button>
         </StackPanel>
 
