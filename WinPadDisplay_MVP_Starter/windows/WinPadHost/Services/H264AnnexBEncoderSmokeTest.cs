@@ -204,9 +204,13 @@ public static class H264AnnexBEncoderSmokeTest
                $"total {stopwatch.ElapsedMilliseconds} ms, {Path.GetFullPath(outputPath)}.";
     }
 
-    public static async Task<string> RunThreadedPipelineAsync(string outputPath)
+    public static async Task<string> RunThreadedPipelineAsync(
+        string outputPath,
+        int testFrameCount = FrameCount)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
+        if (testFrameCount <= 0)
+            throw new ArgumentOutOfRangeException(nameof(testFrameCount));
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
 
         var stopwatch = Stopwatch.StartNew();
@@ -218,7 +222,7 @@ public static class H264AnnexBEncoderSmokeTest
         using var encoder = new H264EncoderWorker(Width, Height, FramesPerSecond);
         using var output = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.Read);
 
-        for (int frameNumber = 0; frameNumber < FrameCount; frameNumber++)
+        for (int frameNumber = 0; frameNumber < testFrameCount; frameNumber++)
         {
             FillNV12Frame(nv12, frameNumber);
             WriteEncodedSamples(

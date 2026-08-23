@@ -129,7 +129,11 @@ public sealed class H264AnnexBEncoder : IDisposable
             }
 
             result.CheckError();
-            IMFSample sample = outputBuffer.Sample ?? callerSample
+            // When the caller supplies the output sample, some MFT wrappers
+            // expose that same native pointer again through outputBuffer.Sample.
+            // Treat callerSample as the sole owner to avoid releasing one COM
+            // pointer twice after every encoded frame.
+            IMFSample sample = callerSample ?? outputBuffer.Sample
                 ?? throw new InvalidOperationException("Encoder returned no output sample.");
             try
             {
@@ -139,7 +143,7 @@ public sealed class H264AnnexBEncoder : IDisposable
             finally
             {
                 outputBuffer.Events?.Dispose();
-                if (!ReferenceEquals(sample, callerSample))
+                if (callerSample is null)
                     sample.Dispose();
                 callerBuffer?.Dispose();
                 callerSample?.Dispose();
