@@ -181,6 +181,21 @@ struct ContentView: View {
                     Text(receiver.status)
 
                     Text("Frames: \(receiver.frameCount)")
+
+                    Text("View: \(Int(geometry.size.width))x\(Int(geometry.size.height))")
+
+                    Text("Screen: \(Int(UIScreen.main.bounds.width))x\(Int(UIScreen.main.bounds.height))")
+
+                    if let image = receiver.image {
+                        Text("Image: \(Int(image.size.width))x\(Int(image.size.height))")
+                    }
+
+                    Text(
+                        "Safe: L\(Int(geometry.safeAreaInsets.leading)) " +
+                        "T\(Int(geometry.safeAreaInsets.top)) " +
+                        "R\(Int(geometry.safeAreaInsets.trailing)) " +
+                        "B\(Int(geometry.safeAreaInsets.bottom))"
+                    )
                 }
                 .font(.caption.monospaced())
                 .foregroundStyle(.white)
