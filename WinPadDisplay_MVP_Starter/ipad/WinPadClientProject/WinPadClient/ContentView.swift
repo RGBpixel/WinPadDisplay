@@ -82,7 +82,9 @@ final class FrameReceiver: ObservableObject {
            
             let p = NWEndpoint.Port(rawValue: port)!
 
-            let parameters = NWParameters.tcp
+            let tcpOptions = NWProtocolTCP.Options()
+            tcpOptions.noDelay = true
+            let parameters = NWParameters(tls: nil, tcp: tcpOptions)
             parameters.allowLocalEndpointReuse = true
             parameters.requiredLocalEndpoint = .hostPort(
                 host: NWEndpoint.Host("127.0.0.1"),
@@ -253,6 +255,7 @@ struct ContentView: View {
     @StateObject private var receiver = FrameReceiver()
     @State private var touchStartedAt: Date?
     @State private var isDragging = false
+    @State private var localPointerPosition: CGPoint?
 
     var body: some View {
         GeometryReader { geometry in
@@ -288,6 +291,15 @@ struct ContentView: View {
                         height: geometry.size.height
                     )
                 }
+
+                if let localPointerPosition {
+                    Image(systemName: "arrow.up.left")
+                        .font(.system(size: 22, weight: .black))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black, radius: 1, x: 1, y: 1)
+                        .position(localPointerPosition)
+                        .allowsHitTesting(false)
+                }
             }
             .frame(
                 width: geometry.size.width,
@@ -299,6 +311,8 @@ struct ContentView: View {
                 DragGesture(minimumDistance: 0, coordinateSpace: .local)
                     .onChanged { value in
                         guard let image = receiver.image else { return }
+                        localPointerPosition = value.location
+
                         let point = normalizedPoint(
                             value.location,
                             viewSize: geometry.size,
@@ -319,6 +333,8 @@ struct ContentView: View {
                         receiver.sendPointer("M", x: point.x, y: point.y)
                     }
                     .onEnded { value in
+                        localPointerPosition = nil
+
                         guard let image = receiver.image else {
                             resetTouchState()
                             return
@@ -426,5 +442,6 @@ struct ContentView: View {
     private func resetTouchState() {
         touchStartedAt = nil
         isDragging = false
+        localPointerPosition = nil
     }
 }
