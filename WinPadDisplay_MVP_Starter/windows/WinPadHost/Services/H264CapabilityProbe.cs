@@ -22,12 +22,19 @@ public static class H264CapabilityProbe
             uint hardware = CountEncoders(
                 (uint)EnumFlag.EnumFlagHardware,
                 outputType);
+            uint synchronous = CountEncoders(
+                (uint)EnumFlag.EnumFlagSyncmft,
+                outputType);
+            uint asynchronous = CountEncoders(
+                (uint)EnumFlag.EnumFlagAsyncmft,
+                outputType);
             uint all = CountEncoders(
                 (uint)EnumFlag.EnumFlagAll,
                 outputType);
 
             return
                 $"H.264 probe: hardware encoders={hardware}, " +
+                $"sync={synchronous}, async={asynchronous}, " +
                 $"all encoders={all}, software fallback={Math.Max(0, (int)all - (int)hardware)}.";
         }
         catch (Exception ex)
