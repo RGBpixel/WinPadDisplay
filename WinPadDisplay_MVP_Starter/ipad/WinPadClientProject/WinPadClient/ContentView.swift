@@ -283,7 +283,6 @@ struct ContentView: View {
     @StateObject private var receiver = FrameReceiver()
     @State private var touchStartedAt: Date?
     @State private var isDragging = false
-    @State private var localPointerPosition: CGPoint?
 
     var body: some View {
         GeometryReader { geometry in
@@ -320,14 +319,6 @@ struct ContentView: View {
                     )
                 }
 
-                if let localPointerPosition {
-                    Image(systemName: "arrow.up.left")
-                        .font(.system(size: 22, weight: .black))
-                        .foregroundStyle(.white)
-                        .shadow(color: .black, radius: 1, x: 1, y: 1)
-                        .position(localPointerPosition)
-                        .allowsHitTesting(false)
-                }
             }
             .frame(
                 width: geometry.size.width,
@@ -339,7 +330,6 @@ struct ContentView: View {
                 DragGesture(minimumDistance: 0, coordinateSpace: .local)
                     .onChanged { value in
                         guard let image = receiver.image else { return }
-                        localPointerPosition = value.location
 
                         let point = normalizedPoint(
                             value.location,
@@ -361,8 +351,6 @@ struct ContentView: View {
                         receiver.sendPointer("M", x: point.x, y: point.y)
                     }
                     .onEnded { value in
-                        localPointerPosition = nil
-
                         guard let image = receiver.image else {
                             resetTouchState()
                             return
@@ -470,6 +458,5 @@ struct ContentView: View {
     private func resetTouchState() {
         touchStartedAt = nil
         isDragging = false
-        localPointerPosition = nil
     }
 }
