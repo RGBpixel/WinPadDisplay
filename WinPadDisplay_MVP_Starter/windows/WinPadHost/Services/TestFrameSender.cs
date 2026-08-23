@@ -235,7 +235,28 @@ public sealed class TestFrameSender : IAsyncDisposable
 
         try
         {
-            CapturedBgraFrame captured = await Task.Run(CaptureDesktopBgra, ct);
+            string deviceName = System.Windows.Forms.Screen.AllScreens
+                .FirstOrDefault(screen => !screen.Primary)?.DeviceName
+                ?? throw new InvalidOperationException("No secondary display found.");
+            using DxgiCaptureWorker? dxgiCapture = TryCreateDxgiCapture(
+                deviceName,
+                log);
+
+            async Task<CapturedBgraFrame> CaptureNextAsync()
+            {
+                if (dxgiCapture == null)
+                    return await Task.Run(CaptureDesktopBgra, ct);
+
+                DxgiCapturedFrame frame = await dxgiCapture.CaptureAsync();
+                return new CapturedBgraFrame(
+                    frame.Bgra,
+                    frame.Width,
+                    frame.Height,
+                    frame.Stride,
+                    frame.CaptureMs);
+            }
+
+            CapturedBgraFrame captured = await CaptureNextAsync();
             using var encoder = new H264EncoderWorker(
                 captured.Width,
                 captured.Height,
@@ -272,7 +293,7 @@ public sealed class TestFrameSender : IAsyncDisposable
                     // Media Foundation encoders may buffer one or more input
                     // frames while starting. No packet has been sent yet, so
                     // capture another current frame without waiting for ACK.
-                    captured = await Task.Run(CaptureDesktopBgra, ct);
+                    captured = await CaptureNextAsync();
                     continue;
                 }
 
@@ -281,8 +302,7 @@ public sealed class TestFrameSender : IAsyncDisposable
                 await stream.WriteAsync(header, ct);
                 await stream.WriteAsync(h264, ct);
 
-                Task<CapturedBgraFrame> nextCaptureTask =
-                    Task.Run(CaptureDesktopBgra, ct);
+                Task<CapturedBgraFrame> nextCaptureTask = CaptureNextAsync();
 
                 if (!await frameAck.WaitAsync(TimeSpan.FromSeconds(5), ct))
                     throw new IOException("Timed out waiting for iPad H.264 frame ACK.");
@@ -327,6 +347,23 @@ public sealed class TestFrameSender : IAsyncDisposable
         catch (Exception ex)
         {
             log("H.264 sender stopped: " + ex.Message);
+        }
+    }
+
+    private static DxgiCaptureWorker? TryCreateDxgiCapture(
+        string deviceName,
+        Action<string> log)
+    {
+        try
+        {
+            var capture = new DxgiCaptureWorker(deviceName);
+            log($"H.264 capture: DXGI Desktop Duplication on {deviceName}.");
+            return capture;
+        }
+        catch (Exception ex)
+        {
+            log($"DXGI capture unavailable ({ex.Message}); using CopyFromScreen.");
+            return null;
         }
     }
 
